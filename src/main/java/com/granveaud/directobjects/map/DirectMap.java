@@ -1,6 +1,7 @@
 package com.granveaud.directobjects.map;
 
 import com.granveaud.directobjects.DirectObject;
+import com.granveaud.directobjects.DirectObjectContext;
 import com.granveaud.directobjects.DirectObjectPointer;
 
 import java.util.HashMap;
@@ -32,14 +33,18 @@ public class DirectMap<K, V extends DirectObject> {
     }
 
     public void put(K key, V value) {
-        // remove existing pointer
-        remove(key);
+        // check existing pointer
+        DirectObjectPointer existingPointer = pointerMap.get(key);
+        if (existingPointer != null) {
+            // update native memory
+            existingPointer.updateFromBean(value);
+        } else {
+            // alloc new memory block
+            DirectObjectPointer newPointer = new DirectObjectPointer.Builder().fromBean(value).build();
 
-        // save new value to native memory
-        value.save();
-
-        // put pointer in map
-        pointerMap.put(key, value.getPointer());
+            // put pointer in map
+            pointerMap.put(key, newPointer);
+        }
     }
 
     public boolean get(K key, V value) {
@@ -47,8 +52,7 @@ public class DirectMap<K, V extends DirectObject> {
         if (pointer == null) return false;
 
         // load from native memory
-        value.attach(pointer);
-        value.load();
+        pointer.populateBean(value);
 
         return true;
     }

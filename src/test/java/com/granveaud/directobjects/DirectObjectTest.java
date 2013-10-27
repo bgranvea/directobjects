@@ -17,6 +17,10 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 public class DirectObjectTest {
+    final static private int BENCH_WARMUP = 5;
+    final static private int BENCH_LOOPS = 30;
+    final static private int BENCH_LOOPS2 = 5;
+
     @Test
     public void test1() {
         // init bean and save to native memory
@@ -24,15 +28,12 @@ public class DirectObjectTest {
         b1.setStr1(getStringAllCodes());
         b1.setStr2(getStringAllCodes());
         b1.setStr3(getStringAllASCIICodes());
-        b1.save();
 
-        // get a pointer to the native memory
-        DirectObjectPointer p = b1.getPointer();
+        DirectObjectPointer p = new DirectObjectPointer.Builder().fromBean(b1).build();
 
         // reload in another bean
         Bean1 b2 = new Bean1();
-        b2.attach(p);
-        b2.load();
+        p.populateBean(b2);
 
         // free native memory
         p.free();
@@ -50,26 +51,20 @@ public class DirectObjectTest {
         b1.setStr1(getStringAllCodes());
         b1.setStr2(getStringAllCodes());
         b1.setStr3(getStringAllASCIICodes());
-        b1.save();
 
-        // get a pointer to the native memory
-        DirectObjectPointer p = b1.getPointer();
+        DirectObjectPointer p = new DirectObjectPointer.Builder().fromBean(b1).build();
 
         // reload in another bean
         Bean1 b2 = new Bean1();
-        b2.attach(p);
-        b2.load();
+        p.populateBean(b2);
 
-        // change b2 content and save it
+        // change b2 content and update native memory
         b2.setStr1("123");
-        b2.save();
-
-        assertTrue(p == b2.getPointer());
+        p.updateFromBean(b2);
 
         // reload in another bean
         Bean1 b3 = new Bean1();
-        b3.attach(p);
-        b3.load();
+        p.populateBean(b3);
 
         // free native memory
         p.free();
@@ -87,9 +82,8 @@ public class DirectObjectTest {
         b1.setStr1(getStringAllCodes());
         b1.setStr2(getStringAllCodes());
         b1.setStr3(getStringAllASCIICodes());
-        b1.save();
 
-        DirectObjectPointer p = b1.getPointer();
+        DirectObjectPointer p = new DirectObjectPointer.Builder().fromBean(b1).build();
 
         // get the byte[]
         byte[] data = p.getAsBytes();
@@ -98,12 +92,11 @@ public class DirectObjectTest {
         p.free();
 
         // load byte[] in new memory block
-        DirectObjectPointer p2 = DirectObjectPointer.fromBytes(data);
+        DirectObjectPointer p2 = new DirectObjectPointer.Builder().fromBytes(data).build();
 
         // reload
         Bean1 b2 = new Bean1();
-        b2.attach(p2);
-        b2.load();
+        p2.populateBean(b2);
 
         // compare beans
         assertEquals(b1.getStr1(), b2.getStr1());
@@ -118,9 +111,8 @@ public class DirectObjectTest {
         b1.setStr1(getStringAllCodes());
         b1.setStr2(getStringAllCodes());
         b1.setStr3(getStringAllASCIICodes());
-        b1.save();
 
-        DirectObjectPointer p = b1.getPointer();
+        DirectObjectPointer p = new DirectObjectPointer.Builder().fromBean(b1).build();
 
         // save to temp file with NIO
         File tempFile = File.createTempFile("directobjecttest", null);
@@ -131,13 +123,14 @@ public class DirectObjectTest {
 
         // reload from file with NIO
         FileChannel fc2 = new FileInputStream(tempFile).getChannel();
-        DirectObjectPointer p2 = DirectObjectPointer.fromFileChannel(fc2, (int) tempFile.length());
+        DirectObjectPointer p2 = new DirectObjectPointer.Builder().fromFileChannel(fc2).withObjectSize((int) tempFile.length()).build();
         fc2.close();
 
         // reload
         Bean1 b2 = new Bean1();
-        b2.attach(p2);
-        b2.load();
+        p2.populateBean(b2);
+
+        tempFile.delete();
 
         // compare beans
         assertEquals(b1.getStr1(), b2.getStr1());
@@ -153,15 +146,14 @@ public class DirectObjectTest {
         b1.setStr1(getStringAllCodes());
         b1.setStr2(getStringAllCodes());
         b1.setStr3(getStringAllASCIICodes());
-        b1.save();
 
-        DirectObjectPointer p = b1.getPointer();
+        DirectObjectPointer p = new DirectObjectPointer.Builder().fromBean(b1).build();
 
         // save to temp file with memory mapped file
         File file = File.createTempFile("directobjecttest", null);
         RandomAccessFile tempFile1 = new RandomAccessFile(file, "rw");
         FileChannel fc1 = tempFile1.getChannel();
-        MappedByteBuffer mem1 = fc1.map(FileChannel.MapMode.READ_WRITE, 0, p.getSize());
+        MappedByteBuffer mem1 = fc1.map(FileChannel.MapMode.READ_WRITE, 0, p.getObjectSize());
         mem1.order(ByteOrder.nativeOrder());
         mem1.put(p.getAsByteBuffer());
         fc1.close();
@@ -172,14 +164,15 @@ public class DirectObjectTest {
         FileChannel fc2 = tempFile2.getChannel();
         MappedByteBuffer mem2 = fc2.map(FileChannel.MapMode.READ_ONLY, 0, tempFile2.length());
         mem2.order(ByteOrder.nativeOrder());
-        DirectObjectPointer p2 = DirectObjectPointer.fromMappedByteBuffer(mem2, (int) tempFile2.length());
+        DirectObjectPointer p2 = new DirectObjectPointer.Builder().fromMappedByteBuffer(mem2).withObjectSize((int) tempFile2.length()).build();
         fc2.close();
         tempFile2.close();
 
+        file.delete();
+
         // reload
         Bean1 b2 = new Bean1();
-        b2.attach(p2);
-        b2.load();
+        p2.populateBean(b2);
 
         // compare beans
         assertEquals(b1.getStr1(), b2.getStr1());
@@ -192,32 +185,32 @@ public class DirectObjectTest {
         MetricRegistry metrics = new MetricRegistry();
 
         Histogram histo1 = metrics.histogram("bench1");
-        for (int i = 0; i < 20; i++) {
-            bench1(1000, histo1);
+        for (int i = -BENCH_WARMUP; i < BENCH_LOOPS; i++) {
+            bench1(1000, i >= 0 ? histo1 : null);
         }
         MetricsUtils.displayHistoResults("bench1", histo1, "ms");
 
         Histogram histo2 = metrics.histogram("bench2");
-        for (int i = 0; i < 20; i++) {
-            bench2(1000, histo2);
+        for (int i = -BENCH_WARMUP; i < BENCH_LOOPS; i++) {
+            bench2(1000, i >= 0 ? histo2 : null);
         }
         MetricsUtils.displayHistoResults("bench2", histo2, "ms");
 
         Histogram histo3 = metrics.histogram("bench3");
-        for (int i = 0; i < 5; i++) {
-            bench3(1000, histo3);
+        for (int i = -BENCH_WARMUP; i < BENCH_LOOPS2; i++) {
+            bench3(1000, i >= 0 ? histo3 : null);
         }
         MetricsUtils.displayHistoResults("bench3", histo3, "ms");
 
         Histogram histo4 = metrics.histogram("bench4");
-        for (int i = 0; i < 5; i++) {
-            bench4(1000, histo4);
+        for (int i = -BENCH_WARMUP; i < BENCH_LOOPS2; i++) {
+            bench4(1000, i >= 0 ? histo4 : null);
         }
         MetricsUtils.displayHistoResults("bench4", histo4, "ms");
 
         Histogram histo5 = metrics.histogram("bench5");
-        for (int i = 0; i < 5; i++) {
-            bench5(1000, histo5);
+        for (int i = -BENCH_WARMUP; i < BENCH_LOOPS2; i++) {
+            bench5(1000, i >= 0 ? histo5 : null);
         }
         MetricsUtils.displayHistoResults("bench5", histo5, "ms");
     }
@@ -227,21 +220,23 @@ public class DirectObjectTest {
         String str1 = getStringAllCodes();
         String str3 = getStringAllASCIICodes();
 
+        // create and save bean. Reuse bean and DirectObjectContext for performance
+        Bean1 b = new Bean1();
+        DirectObjectContext doContext = new DirectObjectContext();
+
         List<DirectObjectPointer> pointers = new ArrayList<DirectObjectPointer>();
         for (int i = 0; i < count; i++) {
             long time0 = System.nanoTime();
 
-            // create and save bean
-            Bean1 b = new Bean1();
             b.setStr1(str1);
             b.setStr2(str1);
             b.setStr3(str3);
-            b.save();
 
-            pointers.add(b.getPointer());
+            DirectObjectPointer p = new DirectObjectPointer.Builder().fromBean(b).withContext(doContext).build();
+            pointers.add(p);
 
             long dtime = System.nanoTime() - time0;
-            histo.update(dtime / 1000);
+            if (histo != null) histo.update(dtime / 1000);
         }
 
         // free memory
@@ -262,9 +257,9 @@ public class DirectObjectTest {
             b.setStr1(str1);
             b.setStr2(str1);
             b.setStr3(str3);
-            b.save();
 
-            pointers.add(b.getPointer());
+            DirectObjectPointer p = new DirectObjectPointer.Builder().fromBean(b).build();
+            pointers.add(p);
         }
 
         for (DirectObjectPointer p : pointers) {
@@ -272,11 +267,10 @@ public class DirectObjectTest {
 
             // load bean from pointer
             Bean1 b = new Bean1();
-            b.attach(p);
-            b.load();
+            p.populateBean(b);
 
             long dtime = System.nanoTime() - time0;
-            histo.update(dtime / 1000);
+            if (histo != null) histo.update(dtime / 1000);
         }
 
         // free memory
@@ -297,9 +291,9 @@ public class DirectObjectTest {
             b.setStr1(str1);
             b.setStr2(str1);
             b.setStr3(str3);
-            b.save();
 
-            pointers.add(b.getPointer());
+            DirectObjectPointer p = new DirectObjectPointer.Builder().fromBean(b).build();
+            pointers.add(p);
         }
 
         // save to a file
@@ -311,17 +305,18 @@ public class DirectObjectTest {
             long time0 = System.nanoTime();
 
             buffer.clear();
-            buffer.putInt(p.getSize());
+            buffer.putInt(p.getObjectSize());
             fc.write(buffer);
 
             ByteBuffer pbuffer = p.getAsByteBuffer();
             fc.write(pbuffer);
 
             long dtime = System.nanoTime() - time0;
-            histo.update(dtime / 1000);
+            if (histo != null) histo.update(dtime / 1000);
         }
 
         fc.close();
+        tempFile.delete();
 
         // free memory
         for (DirectObjectPointer p : pointers) {
@@ -341,9 +336,9 @@ public class DirectObjectTest {
             b.setStr1(str1);
             b.setStr2(str1);
             b.setStr3(str3);
-            b.save();
 
-            pointers.add(b.getPointer());
+            DirectObjectPointer p = new DirectObjectPointer.Builder().fromBean(b).build();
+            pointers.add(p);
         }
 
         // save to a file
@@ -353,7 +348,7 @@ public class DirectObjectTest {
 
         for (DirectObjectPointer p : pointers) {
             buffer.clear();
-            buffer.putInt(p.getSize());
+            buffer.putInt(p.getObjectSize());
             fc1.write(buffer);
 
             ByteBuffer pbuffer = p.getAsByteBuffer();
@@ -370,6 +365,8 @@ public class DirectObjectTest {
         // reload from file
         FileChannel fc2 = new FileInputStream(tempFile).getChannel();
 
+        // reuse builder and context to avoid GC
+        DirectObjectPointer.Builder builder = new DirectObjectPointer.Builder().fromFileChannel(fc2).withContext(new DirectObjectContext());
         for (int i = 0; i < count; i++) {
             long time0 = System.nanoTime();
             fc2.read(buffer);
@@ -377,14 +374,15 @@ public class DirectObjectTest {
             buffer.clear();
             int size = buffer.getInt();
 
-            DirectObjectPointer p = DirectObjectPointer.fromFileChannel(fc2, size);
+            DirectObjectPointer p = builder.withObjectSize(size).build();
             pointers.add(p);
 
             long dtime = System.nanoTime() - time0;
-            histo.update(dtime / 1000);
+            if (histo != null) histo.update(dtime / 1000);
         }
 
         fc2.close();
+        tempFile.delete();
 
         // free memory
         for (DirectObjectPointer p : pointers) {
@@ -405,10 +403,11 @@ public class DirectObjectTest {
             b.setStr1(str1);
             b.setStr2(str1);
             b.setStr3(str3);
-            b.save();
 
-            pointers.add(b.getPointer());
-            totalSize += 4 + 4 + b.getPointer().getSize();
+            DirectObjectPointer p = new DirectObjectPointer.Builder().fromBean(b).build();
+            pointers.add(p);
+
+            totalSize += 4 + 4 + p.getObjectSize();
         }
 
         // save to temp file with memory mapped file
@@ -420,7 +419,7 @@ public class DirectObjectTest {
         mem1.order(ByteOrder.nativeOrder());
 
         for (DirectObjectPointer p : pointers) {
-            mem1.putInt(p.getSize());
+            mem1.putInt(p.getObjectSize());
             mem1.put(p.getAsByteBuffer());
         }
 
@@ -439,19 +438,23 @@ public class DirectObjectTest {
         MappedByteBuffer mem2 = fc2.map(FileChannel.MapMode.READ_ONLY, 0, tempFile2.length());
         mem2.order(ByteOrder.nativeOrder());
 
+        // reuse builder and context to avoid GC
+        DirectObjectPointer.Builder builder = new DirectObjectPointer.Builder().fromMappedByteBuffer(mem2).withContext(new DirectObjectContext());
         for (int i = 0; i < count; i++) {
             long time0 = System.nanoTime();
 
             int size = mem2.getInt();
-            DirectObjectPointer p = DirectObjectPointer.fromMappedByteBuffer(mem2, size);
+            DirectObjectPointer p = builder.withObjectSize(size).build();
             pointers.add(p);
 
             long dtime = System.nanoTime() - time0;
-            histo.update(dtime / 1000);
+            if (histo != null) histo.update(dtime / 1000);
         }
 
         fc2.close();
         tempFile2.close();
+
+        file.delete();
 
         // free memory
         for (DirectObjectPointer p : pointers) {

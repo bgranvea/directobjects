@@ -1,8 +1,9 @@
 package com.granveaud.directobjects.beans;
 
 import com.granveaud.directobjects.DirectObject;
+import com.granveaud.directobjects.DirectObjectContext;
 
-public class Bean1 extends DirectObject {
+public class Bean1 implements DirectObject {
     private String str1;
     private String str2;
     private String str3;
@@ -32,34 +33,31 @@ public class Bean1 extends DirectObject {
     }
 
     @Override
-    protected void serialize() {
-        putString(str1);
-        alignInt();
-        putStringFast(str2);
-        alignInt();
-        putStringASCII(str3);
-    }
-
-    /**
-     * DirectObject methods
-     */
-    @Override
-    protected void unserialize() {
-        str1 = getString();
-        alignInt();
-        str2 = getStringFast();
-        alignInt();
-        str3 = getStringASCII();
+    public void serialize(DirectObjectContext doContext) {
+        doContext.putString(str1);
+        doContext.alignInt();
+        doContext.putStringFast(str2);
+        doContext.alignInt();
+        doContext.putStringASCII(str3);
     }
 
     @Override
-    protected int getSerializedSize() {
+    public void unserialize(DirectObjectContext doContext) {
+        str1 = doContext.getString();
+        doContext.alignInt();
+        str2 = doContext.getStringFast();
+        doContext.alignInt();
+        str3 = doContext.getStringASCII();
+    }
+
+    @Override
+    public int getSerializedSize(DirectObjectContext doContext) {
         int pos = 0;
-        pos += getStringLength(str1);
-        pos = alignPositionInt(pos);
-        pos += getStringFastLength(str2);
-        pos = alignPositionInt(pos);
-        pos += getStringASCIILength(str3);
+        pos += doContext.getStringLength(str1);
+        pos = doContext.alignPositionInt(pos);
+        pos += doContext.getStringFastLength(str2);
+        pos = doContext.alignPositionInt(pos);
+        pos += doContext.getStringASCIILength(str3);
 
         return pos;
     }

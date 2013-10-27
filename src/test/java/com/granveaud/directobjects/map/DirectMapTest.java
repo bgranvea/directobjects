@@ -19,8 +19,6 @@ public class DirectMapTest {
             b.setStr2("123456");
 
             map.put(i, b);
-
-            b.detach(); // allow to reuse same bean
         }
 
         // replace elements
@@ -29,8 +27,6 @@ public class DirectMapTest {
             b.setStr2("12345678");
 
             map.put(i, b);
-
-            b.detach(); // allow to reuse same bean
         }
 
         // get
