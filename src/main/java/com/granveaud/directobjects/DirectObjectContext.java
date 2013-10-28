@@ -188,7 +188,10 @@ public class DirectObjectContext {
         // create String without copying char[]
         // UnsafeUtils.UNSAFE.allocateInstance(String.class) crashes??
         String res = new String();
-        Utils.UNSAFE.putObject(res, Utils.STRING_CHAR_ARRAY_OFFSET, chars);
+        Utils.UNSAFE.putObject(res, Utils.STRING_VALUE_OFFSET, chars);
+        if (Utils.STRING_COUNT_OFFSET != 0) {
+            Utils.UNSAFE.putInt(res, Utils.STRING_COUNT_OFFSET, chars.length);
+        }
 
         return res;
     }
@@ -239,7 +242,10 @@ public class DirectObjectContext {
         // create String without copying char[]
         // UnsafeUtils.UNSAFE.allocateInstance(String.class) crashes??
         String res = new String();
-        Utils.UNSAFE.putObject(res, Utils.STRING_CHAR_ARRAY_OFFSET, chars);
+        Utils.UNSAFE.putObject(res, Utils.STRING_VALUE_OFFSET, chars);
+        if (Utils.STRING_COUNT_OFFSET != 0) {
+            Utils.UNSAFE.putInt(res, Utils.STRING_COUNT_OFFSET, chars.length);
+        }
 
         return res;
     }
@@ -276,7 +282,10 @@ public class DirectObjectContext {
         // create String without copying char[]
         // UnsafeUtils.UNSAFE.allocateInstance(String.class) crashes??
         String res = new String();
-        Utils.UNSAFE.putObject(res, Utils.STRING_CHAR_ARRAY_OFFSET, chars);
+        Utils.UNSAFE.putObject(res, Utils.STRING_VALUE_OFFSET, chars);
+        if (Utils.STRING_COUNT_OFFSET != 0) {
+            Utils.UNSAFE.putInt(res, Utils.STRING_COUNT_OFFSET, chars.length);
+        }
 
         return res;
     }

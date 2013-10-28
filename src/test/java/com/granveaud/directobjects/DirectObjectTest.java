@@ -76,36 +76,7 @@ public class DirectObjectTest {
     }
 
     @Test
-    public void test3() {
-        // init bean and save to native memory
-        Bean1 b1 = new Bean1();
-        b1.setStr1(getStringAllCodes());
-        b1.setStr2(getStringAllCodes());
-        b1.setStr3(getStringAllASCIICodes());
-
-        DirectObjectPointer p = new DirectObjectPointer.Builder().fromBean(b1).build();
-
-        // get the byte[]
-        byte[] data = p.getAsBytes();
-
-        // free native memory
-        p.free();
-
-        // load byte[] in new memory block
-        DirectObjectPointer p2 = new DirectObjectPointer.Builder().fromBytes(data).build();
-
-        // reload
-        Bean1 b2 = new Bean1();
-        p2.populateBean(b2);
-
-        // compare beans
-        assertEquals(b1.getStr1(), b2.getStr1());
-        assertEquals(b1.getStr2(), b2.getStr2());
-        assertEquals(b1.getStr3(), b2.getStr3());
-    }
-
-    @Test
-    public void test4() throws IOException {
+    public void test3() throws IOException {
         // init bean and save to native memory
         Bean1 b1 = new Bean1();
         b1.setStr1(getStringAllCodes());
@@ -117,13 +88,12 @@ public class DirectObjectTest {
         // save to temp file with NIO
         File tempFile = File.createTempFile("directobjecttest", null);
         FileChannel fc1 = new FileOutputStream(tempFile).getChannel();
-        ByteBuffer buffer = p.getAsByteBuffer();
-        fc1.write(buffer);
+        p.write(fc1);
         fc1.close();
 
         // reload from file with NIO
         FileChannel fc2 = new FileInputStream(tempFile).getChannel();
-        DirectObjectPointer p2 = new DirectObjectPointer.Builder().fromFileChannel(fc2).withObjectSize((int) tempFile.length()).build();
+        DirectObjectPointer p2 = new DirectObjectPointer.Builder().fromFileChannel(fc2).build();
         fc2.close();
 
         // reload
@@ -140,7 +110,7 @@ public class DirectObjectTest {
 
 
     @Test
-    public void test5() throws IOException {
+    public void test4() throws IOException {
         // init bean and save to native memory
         Bean1 b1 = new Bean1();
         b1.setStr1(getStringAllCodes());
@@ -153,9 +123,9 @@ public class DirectObjectTest {
         File file = File.createTempFile("directobjecttest", null);
         RandomAccessFile tempFile1 = new RandomAccessFile(file, "rw");
         FileChannel fc1 = tempFile1.getChannel();
-        MappedByteBuffer mem1 = fc1.map(FileChannel.MapMode.READ_WRITE, 0, p.getObjectSize());
+        MappedByteBuffer mem1 = fc1.map(FileChannel.MapMode.READ_WRITE, 0, p.getObjectSize() + 4);
         mem1.order(ByteOrder.nativeOrder());
-        mem1.put(p.getAsByteBuffer());
+        p.write(mem1);
         fc1.close();
         tempFile1.close();
 
@@ -164,7 +134,7 @@ public class DirectObjectTest {
         FileChannel fc2 = tempFile2.getChannel();
         MappedByteBuffer mem2 = fc2.map(FileChannel.MapMode.READ_ONLY, 0, tempFile2.length());
         mem2.order(ByteOrder.nativeOrder());
-        DirectObjectPointer p2 = new DirectObjectPointer.Builder().fromMappedByteBuffer(mem2).withObjectSize((int) tempFile2.length()).build();
+        DirectObjectPointer p2 = new DirectObjectPointer.Builder().fromMappedByteBuffer(mem2).build();
         fc2.close();
         tempFile2.close();
 
@@ -299,17 +269,11 @@ public class DirectObjectTest {
         // save to a file
         File tempFile = File.createTempFile("directobjecttest", null);
         FileChannel fc = new FileOutputStream(tempFile).getChannel();
-        ByteBuffer buffer = ByteBuffer.allocate(4);
 
         for (DirectObjectPointer p : pointers) {
             long time0 = System.nanoTime();
 
-            buffer.clear();
-            buffer.putInt(p.getObjectSize());
-            fc.write(buffer);
-
-            ByteBuffer pbuffer = p.getAsByteBuffer();
-            fc.write(pbuffer);
+            p.write(fc);
 
             long dtime = System.nanoTime() - time0;
             if (histo != null) histo.update(dtime / 1000);
@@ -344,15 +308,9 @@ public class DirectObjectTest {
         // save to a file
         File tempFile = File.createTempFile("directobjecttest", null);
         FileChannel fc1 = new FileOutputStream(tempFile).getChannel();
-        ByteBuffer buffer = ByteBuffer.allocate(4);
 
         for (DirectObjectPointer p : pointers) {
-            buffer.clear();
-            buffer.putInt(p.getObjectSize());
-            fc1.write(buffer);
-
-            ByteBuffer pbuffer = p.getAsByteBuffer();
-            fc1.write(pbuffer);
+            p.write(fc1);
         }
         fc1.close();
 
@@ -366,15 +324,11 @@ public class DirectObjectTest {
         FileChannel fc2 = new FileInputStream(tempFile).getChannel();
 
         // reuse builder and context to avoid GC
-        DirectObjectPointer.Builder builder = new DirectObjectPointer.Builder().fromFileChannel(fc2).withContext(new DirectObjectContext());
+        DirectObjectPointer.Builder builder = new DirectObjectPointer.Builder().fromFileChannel(fc2);
         for (int i = 0; i < count; i++) {
             long time0 = System.nanoTime();
-            fc2.read(buffer);
 
-            buffer.clear();
-            int size = buffer.getInt();
-
-            DirectObjectPointer p = builder.withObjectSize(size).build();
+            DirectObjectPointer p = builder.build();
             pointers.add(p);
 
             long dtime = System.nanoTime() - time0;
@@ -407,7 +361,7 @@ public class DirectObjectTest {
             DirectObjectPointer p = new DirectObjectPointer.Builder().fromBean(b).build();
             pointers.add(p);
 
-            totalSize += 4 + 4 + p.getObjectSize();
+            totalSize += 4 + p.getObjectSize();
         }
 
         // save to temp file with memory mapped file
@@ -419,8 +373,7 @@ public class DirectObjectTest {
         mem1.order(ByteOrder.nativeOrder());
 
         for (DirectObjectPointer p : pointers) {
-            mem1.putInt(p.getObjectSize());
-            mem1.put(p.getAsByteBuffer());
+            p.write(mem1);
         }
 
         fc1.close();
@@ -435,16 +388,15 @@ public class DirectObjectTest {
         // reload from file with memory mapped file
         RandomAccessFile tempFile2 = new RandomAccessFile(file, "r");
         FileChannel fc2 = tempFile2.getChannel();
-        MappedByteBuffer mem2 = fc2.map(FileChannel.MapMode.READ_ONLY, 0, tempFile2.length());
+        MappedByteBuffer mem2 = fc2.map(FileChannel.MapMode.READ_ONLY, 0, totalSize);
         mem2.order(ByteOrder.nativeOrder());
 
         // reuse builder and context to avoid GC
-        DirectObjectPointer.Builder builder = new DirectObjectPointer.Builder().fromMappedByteBuffer(mem2).withContext(new DirectObjectContext());
+        DirectObjectPointer.Builder builder = new DirectObjectPointer.Builder().fromMappedByteBuffer(mem2);
         for (int i = 0; i < count; i++) {
             long time0 = System.nanoTime();
 
-            int size = mem2.getInt();
-            DirectObjectPointer p = builder.withObjectSize(size).build();
+            DirectObjectPointer p = builder.build();
             pointers.add(p);
 
             long dtime = System.nanoTime() - time0;

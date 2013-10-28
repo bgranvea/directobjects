@@ -2,6 +2,7 @@ package com.granveaud.directobjects;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 
@@ -9,23 +10,14 @@ public class DirectObjectPointer {
 
     public static class Builder {
         private DirectObject bean;
-        private byte[] bytes;
         private FileChannel fileChannel;
         private MappedByteBuffer mappedByteBuffer;
-        private int objectSize = -1;
 
         private DirectObjectContext directObjectContext;
         private boolean autoRelease;
-        private int bytesOffset = -1;
-        private int bytesLength = -1;
 
         public Builder fromBean(DirectObject bean) {
             this.bean = bean;
-            return this;
-        }
-
-        public Builder fromBytes(byte[] bytes) {
-            this.bytes = bytes;
             return this;
         }
 
@@ -49,43 +41,33 @@ public class DirectObjectPointer {
             return this;
         }
 
-        public Builder withObjectSize(int objectSize) {
-            this.objectSize = objectSize;
-            return this;
-        }
-
-        public Builder withBytesOffset(int bytesOffset) {
-            this.bytesOffset = bytesOffset;
-            return this;
-        }
-
-        public Builder withBytesLength(int bytesLength) {
-            this.bytesLength = bytesLength;
-            return this;
-        }
-
         public DirectObjectPointer build() {
-            if (bean == null && bytes == null && fileChannel == null && mappedByteBuffer == null) {
-                throw new IllegalArgumentException("One of fromBean, fromBytes, fromFileChannel or fromMappedByteBuffer is mandatory");
-            }
-
-            if ((fileChannel != null || mappedByteBuffer != null) && objectSize == -1) {
-                throw new IllegalArgumentException("withObjectSize is mandatory with fromFileChannel or fromMappedByteBuffer");
+            if (bean == null && fileChannel == null && mappedByteBuffer == null) {
+                throw new IllegalArgumentException("One of fromBean, fromFileChannel or fromMappedByteBuffer is mandatory");
             }
 
             DirectObjectPointer pointer = null;
             if (bean != null) {
                 pointer = DirectObjectPointer.createFromBean(bean, directObjectContext != null ? directObjectContext : new DirectObjectContext());
-            } else if (bytes != null) {
-                pointer = DirectObjectPointer.createFromBytes(bytes, bytesOffset != -1 ? bytesOffset : 0, bytesLength != -1 ? bytesLength : bytes.length);
             } else if (fileChannel != null) {
                 try {
-                    pointer = DirectObjectPointer.createFromFileChannel(fileChannel, objectSize);
+                    // read objSize
+                    ByteBuffer tempBuffer = ByteBuffer.allocate(4).order(ByteOrder.nativeOrder());
+                    fileChannel.read(tempBuffer);
+
+                    tempBuffer.flip();
+                    tempBuffer.position(0);
+                    int objSize = tempBuffer.getInt();
+
+                    pointer = DirectObjectPointer.createFromFileChannel(fileChannel, objSize);
                 } catch (IOException e) {
                     throw new IllegalArgumentException("Cannot read from file channel", e);
                 }
             } else if (mappedByteBuffer != null) {
-                pointer = DirectObjectPointer.createFromMappedByteBuffer(mappedByteBuffer, objectSize);
+                // read objSize
+                int objSize = mappedByteBuffer.getInt();
+
+                pointer = DirectObjectPointer.createFromMappedByteBuffer(mappedByteBuffer, objSize);
             }
 
             // autoclose option
@@ -146,16 +128,10 @@ public class DirectObjectPointer {
         return pointer;
     }
 
-    private static DirectObjectPointer createFromBytes(byte[] bytes, int offset, int objSize) {
+    private static DirectObjectPointer createFromFileChannel(FileChannel fc, int objSize) throws IOException {
         DirectObjectPointer p = new DirectObjectPointer(objSize);
-        Utils.UNSAFE.copyMemory(bytes, Utils.BYTES_OFFSET + offset, null, p.address, objSize);
-
-        return p;
-    }
-
-    private static DirectObjectPointer createFromFileChannel(FileChannel fileChannel, int objSize) throws IOException {
-        DirectObjectPointer p = new DirectObjectPointer(objSize);
-        fileChannel.read(p.getAsByteBuffer());
+        fc.position(fc.position() - 4); // rewind objectSize
+        fc.read(p.getAsByteBuffer());
 
         return p;
     }
@@ -165,8 +141,8 @@ public class DirectObjectPointer {
 
         try {
             // copy memory from MappedByteBuffer to native memory
-            long mapAddress = (Long) Utils.BUFFER_ADDRESS_FIELD.get(map);
-            Utils.UNSAFE.copyMemory(null, mapAddress, null, p.address + 4, objSize);
+            long mapAddress = Utils.UNSAFE.getLong(map, Utils.BUFFER_ADDRESS_OFFSET);
+            Utils.UNSAFE.copyMemory(null, mapAddress, null, p.address, objSize + 4);
 
             // change position in MappedByteBuffer
             map.position(map.position() + objSize);
@@ -219,23 +195,24 @@ public class DirectObjectPointer {
         return (address != 0 ? Utils.UNSAFE.getInt(address) : 0);
     }
 
-    public byte[] getAsBytes() {
-        if (address == 0) return null;
-
-        byte[] result = new byte[getObjectSize()];
-        Utils.UNSAFE.copyMemory(null, address, result, Utils.BYTES_OFFSET, result.length);
-
-        return result;
-    }
-
-    public ByteBuffer getAsByteBuffer() {
+    private ByteBuffer getAsByteBuffer() {
         if (address == 0) return null;
 
         try {
-            // instanciate a DirectByteBuffer which wraps the memory block
-            return (ByteBuffer) Utils.DIRECT_BYTE_BUFFER_CONSTRUCTOR.newInstance(address + 4, getObjectSize(), null);
+            // instanciate a DirectByteBuffer which wraps the memory block including objectSize
+            return (ByteBuffer) Utils.DIRECT_BYTE_BUFFER_CONSTRUCTOR.newInstance(address, getObjectSize() + 4);
         } catch (Exception e) {
             throw new IllegalArgumentException("Cannot instanciate DirectByteBuffer");
         }
+    }
+
+    public void write(FileChannel fc) throws IOException {
+        ByteBuffer buffer = getAsByteBuffer();
+        fc.write(buffer);
+    }
+
+    public void write(MappedByteBuffer mappedByteBuffer) throws IOException {
+        ByteBuffer buffer = getAsByteBuffer();
+        mappedByteBuffer.put(buffer);
     }
 }
